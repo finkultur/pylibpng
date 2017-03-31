@@ -52,7 +52,7 @@ class PNG:
         if chunk_id == "IHDR": self.get_IHDR(chunk_data)
         elif chunk_id == "pHYs": self.get_pHYs(chunk_data)
         elif chunk_id == "tIME": self.get_tIME(chunk_data)
-        elif chunk_id == "iTXt": self.get_iTXt(size, f, ptr)
+        elif chunk_id == "iTXt": self.get_iTXt(chunk_data)
         elif chunk_id == "IDAT": self.get_IDAT(chunk_data)
         elif chunk_id == "IEND":
             return
@@ -92,31 +92,19 @@ class PNG:
         minute = unpack(data[5]) # 0-59
         second = unpack(data[6]) # 0-60
         self.timestamp = datetime.datetime(year, month, day, hour, minute, second)
-        print("Timestamp: " + str(self.timestamp))
+        #print("Timestamp: " + str(self.timestamp))
 
-    def get_iTXt(self, size, f, ptr):
-        f.seek(ptr+4+4)
-        self.kw = ""
-        while 1:
-            b = f.read(1);
-            if b == '\0': break
-            self.kw += b
-        comp_flag = get_bytes(f, 1)
-        comp_method = get_bytes(f, 1)
-        lang_tag = ""
-        while 1:
-            b = f.read(1);
-            if b == '\0': break
-            lang_tag += b
-        translated_kw = ""
-        while 1:
-            b = f.read(1);
-            if b == '\0': break
-            translated_kw += b
-        self.text = ""
-        for i in range(f.tell(), ptr+4+4+size): # sizeof{size, type, data}
-            self.text += f.read(1)
-        print(self.text)
+    def get_iTXt(self, data):
+        """ iTXt Header """
+        def get_until_null(s, start=0):
+            end = s.find('\0')
+            return end+1, s[start:end]
+        pos, self.kw = get_until_null(data)
+        comp_flag = unpack(data[pos]); pos += 1
+        comp_method = unpack(data[pos]); pos += 1
+        pos, lang_tag = get_until_null(data, pos)
+        pos, translated_kw = get_until_null(data, pos)
+        self.text = data[pos:]
 
     def get_IDAT(self, data):
         pass
