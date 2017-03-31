@@ -31,10 +31,9 @@ class PNG:
             if not is_png(f):
                 print("File is not a PNG")
                 return
-            self.get_chunk(f, 8)
+            self.get_chunk(f)
 
-    def get_chunk(self, f, ptr):
-        f.seek(ptr) # File pointer is probably already here (?)
+    def get_chunk(self, f):
         size = get_bytes(f, 4)
         chunk_id = f.read(4)
         chunk_data = f.read(size)
@@ -60,8 +59,7 @@ class PNG:
         # TODO: check for other type of chunks like PLTE, sRGB, gAMA, zTXT, tRNS
 
         # Process next chunk
-        next_chunk = ptr + 4 + 4 + size + 4 # sizeof{size, type, data, crc}
-        self.get_chunk(f, next_chunk)
+        self.get_chunk(f)
 
     def check_crc():
         pass
