@@ -5,14 +5,6 @@ import struct
 import datetime
 import binascii
 
-def get_bytes(f, num):
-    """ Get num bytes from the opened myfile """
-    if num == 1: return struct.unpack('!B', f.read(1))[0]
-    if num == 2: return struct.unpack('!H', f.read(2))[0]
-    if num == 4: return struct.unpack('!I', f.read(4))[0]
-    if num == 8: return struct.unpack('!Q', f.read(8))[0]
-    else: return -1
-
 def unpack(s):
     """ Unpack bytes from string s """
     if len(s) == 1: return struct.unpack('!B', s)[0]
@@ -23,7 +15,7 @@ def unpack(s):
 
 def is_png(f):
     """ Checks that the first 8 bytes of the opened file is a valid PNG signature """
-    return "0x89504e470d0a1a0a" == hex(get_bytes(f, 8))[:-1] # Cut the trailing 'L'
+    return "0x89504e470d0a1a0a" == hex(unpack(f.read(8)))[:-1] # Cut the trailing 'L'
 
 class PNG:
     def __init__(self, filename):
@@ -34,17 +26,11 @@ class PNG:
             self.get_chunk(f)
 
     def get_chunk(self, f):
-        size = get_bytes(f, 4)
+        size = unpack(f.read(4))
         chunk_id = f.read(4)
         chunk_data = f.read(size)
-
-        # Check CRC
         crc = unpack(f.read(4))
-        calc_crc = binascii.crc32(chunk_id + chunk_data) & 0xffffffff
-        if (crc != calc_crc):
-            print("CRC mismatch, file corrupted")
-            return
-
+        self.check_crc(chunk_id, chunk_data, crc)
         print("Chunk ID: %s, size: %i" % (chunk_id, size))
 
         # Process current chunk
@@ -61,8 +47,11 @@ class PNG:
         # Process next chunk
         self.get_chunk(f)
 
-    def check_crc():
-        pass
+    def check_crc(self, chunk_id, chunk_data, crc):
+        calc_crc = binascii.crc32(chunk_id + chunk_data) & 0xffffffff
+        if (crc != calc_crc):
+            print("CRC mismatch, file corrupted")
+            return
 
     def get_IHDR(self, data):
         """ IHDR Header """
