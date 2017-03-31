@@ -3,6 +3,7 @@
 import sys
 import struct
 import datetime
+import binascii
 
 def get_bytes(f, num):
     """ Get num bytes from the opened myfile """
@@ -10,6 +11,14 @@ def get_bytes(f, num):
     if num == 2: return struct.unpack('!H', f.read(2))[0]
     if num == 4: return struct.unpack('!I', f.read(4))[0]
     if num == 8: return struct.unpack('!Q', f.read(8))[0]
+    else: return -1
+
+def unpack(s):
+    """ Unpack bytes from string s """
+    if len(s) == 1: return struct.unpack('!B', s)[0]
+    if len(s) == 2: return struct.unpack('!H', s)[0]
+    if len(s) == 4: return struct.unpack('!I', s)[0]
+    if len(s) == 8: return struct.unpack('!Q', s)[0]
     else: return -1
 
 def is_png(f):
@@ -28,51 +37,65 @@ class PNG:
         f.seek(ptr) # File pointer is probably already here (?)
         size = get_bytes(f, 4)
         chunk_id = f.read(4)
-        next_chunk = ptr + 4 + 4 + size + 4 # sizeof{size, type, data, crc}
+        chunk_data = f.read(size)
+
+        # Check CRC
+        crc = unpack(f.read(4))
+        calc_crc = binascii.crc32(chunk_id + chunk_data) & 0xffffffff
+        if (crc != calc_crc):
+            print("CRC mismatch, file corrupted")
+            return
+
         print("Chunk ID: %s, size: %i" % (chunk_id, size))
 
         # Process current chunk
-        if chunk_id == "IHDR": self.get_IHDR(f)
-        elif chunk_id == "pHYs": self.get_pHYs(size, f, ptr)
-        elif chunk_id == "tIME": self.get_tIME(f)
+        if chunk_id == "IHDR": self.get_IHDR(chunk_data)
+        elif chunk_id == "pHYs": self.get_pHYs(chunk_data)
+        elif chunk_id == "tIME": self.get_tIME(chunk_data)
         elif chunk_id == "iTXt": self.get_iTXt(size, f, ptr)
-        elif chunk_id == "IDAT": self.get_IDAT(size, f)
-        elif chunk_id == "IEND": return
+        elif chunk_id == "IDAT": self.get_IDAT(chunk_data)
+        elif chunk_id == "IEND":
+            return
 
         # TODO: check for other type of chunks like PLTE, sRGB, gAMA, zTXT, tRNS
 
         # Process next chunk
+        next_chunk = ptr + 4 + 4 + size + 4 # sizeof{size, type, data, crc}
         self.get_chunk(f, next_chunk)
 
-    def get_IHDR(self, f):
+    def check_crc():
+        pass
+
+    def get_IHDR(self, data):
         """ IHDR Header """
-        self.width = get_bytes(f, 4)
-        self.height = get_bytes(f, 4)
-        self.bit_depth = get_bytes(f, 1)
-        self.color_type = get_bytes(f, 1)
-        self.comp_method = get_bytes(f, 1)
-        self.filter_method = get_bytes(f, 1)
-        self.interlace_method = get_bytes(f, 1)
+        self.width = unpack(data[0:4])
+        self.height = unpack(data[4:8])
+        self.bit_depth = unpack(data[8])
+        self.color_type = unpack(data[9])
+        self.comp_method = unpack(data[10])
+        self.filter_method = unpack(data[11])
+        self.interlace_method = unpack(data[12])
         #print("""width: %i, height: %i, bit_depth: %i, color_type: %i, comp_method: %i,
         #         filter_method: %i, interlace_method: %i""" % (self.width, self.height, self.bit_depth,
         #       self.color_type, self.comp_method, self.filter_method, self.interlace_method))
 
-    def get_pHYs(self, size, f, ptr):
+    def get_pHYs(self, data):
         """ pHYs Header """
         pass # Not that important
 
-    def get_tIME(self, f):
+    def get_tIME(self, data):
         """ tIME Header. Timestamp in UTC """
-        year = get_bytes(f, 2) # 0-9999
-        month = get_bytes(f, 1) # 1-12
-        day = get_bytes(f, 1) # 1-31
-        hour = get_bytes(f, 1) # 0-23
-        minute = get_bytes(f, 1) # 0-59
-        second = get_bytes(f, 1) # 0-60
+        year = unpack(data[0:2]) # 0-9999
+        month = unpack(data[2]) # 1-12
+        day = unpack(data[3]) # 1-31
+        hour = unpack(data[4]) # 0-23
+        minute = unpack(data[5]) # 0-59
+        second = unpack(data[6]) # 0-60
         self.timestamp = datetime.datetime(year, month, day, hour, minute, second)
-        #print("Timestamp: " + str(self.timestamp))
+        print("Timestamp: " + str(self.timestamp))
 
     def get_iTXt(self, size, f, ptr):
+        f.seek(ptr+4+4)
         self.kw = ""
         while 1:
             b = f.read(1);
@@ -93,8 +116,9 @@ class PNG:
         self.text = ""
         for i in range(f.tell(), ptr+4+4+size): # sizeof{size, type, data}
             self.text += f.read(1)
+        print(self.text)
 
-    def get_IDAT(self, size, f):
+    def get_IDAT(self, data):
         pass
 
 if __name__ == '__main__':
