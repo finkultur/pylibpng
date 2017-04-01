@@ -5,7 +5,7 @@ import struct
 import datetime
 import binascii
 import zlib
-import StringIO
+import math
 
 def unpack(s):
     """ Unpack bytes from string s """
@@ -41,7 +41,6 @@ class PNG:
         crc = unpack(f.read(4))
         self.check_crc(chunk_id, chunk_data, crc)
         print("Chunk ID: %s, size: %i" % (chunk_id, size))
-
 
         # Process current chunk
         if chunk_id == "IHDR": self.get_IHDR(chunk_data)
@@ -135,11 +134,12 @@ class PNG:
         c   the byte corresponding to b in the pixel immediately before the pixel containing b (or the byte
             immediately before b, when the bit depth is less than 8).
         """
-        # TODO: This is still not working
         a = array_to_2d(list(data), self.width*3+1) # filter type + 3 bytes per pixel
+
         for y in range(0, self.height):
             filter_type = a[y][0]
             a[y][0] = 0
+
             # if filter_type == 0: Recon(x) = Filt(x)
             if filter_type == 1:
                 for x in range(3, self.width*3+1):
@@ -150,9 +150,30 @@ class PNG:
                     # Recon(x) = Filt(x) + Recon(b)
                     a[y][x] = (a[y][x] + a[y-1][x]) % 256
             elif filter_type == 3:
-                pass
+                # TODO: Have not found a file that uses this filter type
+                for x in range(1, self.width*3+1):
+                    # Recon(x) = Filt(x) + floor((Recon(a) + Recon(b)) / 2)
+                    a[y][x] = (a[y][x] + math.floor((a[y][x-3] + a[y-1][x]) / 2)) % 256
             elif filter_type == 4:
-                pass
+                def paeth_predictor(a, b, c):
+                    p = a + b - c
+                    pa = abs(p - a)
+                    pb = abs(p - b)
+                    pc = abs(p - c)
+                    if pa <= pb and pa <= pc:
+                        pr = a
+                    elif pb <= pc:
+                        pr = b
+                    else:
+                         pr = c
+                    return pr
+
+                for x in range(1, self.width*3+1):
+                    # Recon(x) = Filt(x) + PaethPredictor(Recon(a), Recon(b), Recon(c))
+                    if x > 3:
+                        a[y][x] = (a[y][x] + paeth_predictor(a[y][x-3], a[y-1][x], a[y-1][x-3])) % 256
+                    else:
+                        a[y][x] = (a[y][x] + paeth_predictor(0, a[y-1][x], 0)) % 256
 
         pixels = []
         for y in range(0, self.height):
