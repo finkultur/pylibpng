@@ -20,6 +20,7 @@ def is_png(f):
 
 class PNG:
     def __init__(self, filename):
+        self.IDATS = []
         with open(filename, 'rb') as f:
             if not is_png(f):
                 print("File is not a PNG")
@@ -34,12 +35,17 @@ class PNG:
         self.check_crc(chunk_id, chunk_data, crc)
         print("Chunk ID: %s, size: %i" % (chunk_id, size))
 
+
         # Process current chunk
         if chunk_id == "IHDR": self.get_IHDR(chunk_data)
         elif chunk_id == "pHYs": self.get_pHYs(chunk_data)
         elif chunk_id == "tIME": self.get_tIME(chunk_data)
         elif chunk_id == "iTXt": self.get_iTXt(chunk_data)
-        elif chunk_id == "IDAT": self.get_IDAT(chunk_data)
+        elif chunk_id == "IDAT":
+            f.seek(f.tell()+4) # Skip size of next chunk
+            next_chunk_id = f.read(4)
+            self.get_IDAT(chunk_data, next_chunk_id != 'IDAT')
+            f.seek(f.tell()-8)
         elif chunk_id == "IEND":
             return
 
@@ -89,26 +95,47 @@ class PNG:
         pos, translated_kw = get_until_null(data, pos)
         self.text = data[pos:]
 
-    def get_IDAT(self, data):
-        """ IDAT Chunk
-            Compression method/flags code: 1 byte
-            Additional flags/check bits:   1 byte
-            Compressed data blocks:        n bytes
-            Check value:                   4 bytes
-        """
+    def get_IDAT(self, data, last_IDAT):
+        """ IDAT Chunk """
+        # TODO: Check check_value
         comp_method = unpack(data[0])
         check_bits = unpack(data[1])
-        comp_bytes = struct.unpack('!' + 'B'*len(data[2:-4]), data[2:-4])
+        comp_data = data[2:-4]
         check_value = unpack(data[-4:])
+        self.IDATS.append((comp_method, check_bits, comp_data, check_value))
 
-        decomp_data = zlib.decompress(data[2:-4], -zlib.MAX_WBITS)
+        if last_IDAT:
+           self.process_IDATs()
+        #print("IDAT: comp_method: %i, check_bits: %i, check_value: %s" %
+        #      (comp_method, check_bits, hex(check_value)))
+        #print("IDAT: comp_data: " + str(comp_bytes))
+
+    def process_IDATs(self):
+        comp_data = ""
+        for idat in self.IDATS:
+            comp_data += idat[2]
+
+        decomp_data = zlib.decompress(comp_data, -zlib.MAX_WBITS)
         decomp_bytes = struct.unpack('!' + 'B'*len(decomp_data), decomp_data)
-        print("IDAT: comp_method: %i, check_bits: %i, check_value: %s" %
-              (comp_method, check_bits, hex(check_value)))
-        print("IDAT: comp_data: " + str(comp_bytes))
-        print("IDAT: decompressed bytes: " + str(decomp_bytes))
+
+        # This may probably be solved with a pretty sweet list comprehension but im hungover
+        self.pixels = []
+        i = 0
+        for y in range(0, self.height):
+            scanline = []
+            i = i + 1
+            for x in range(0, self.width):
+                scanline.append((decomp_bytes[i], decomp_bytes[i+1], decomp_bytes[i+2]))
+                i = i + 3
+            self.pixels.append(scanline)
+
+        #print("IDAT: decompressed bytes: " + str(decomp_bytes))
+
+    def defilter(self, scanline):
+        pass
 
 if __name__ == '__main__':
     infile = sys.argv[1]
     img = PNG(infile)
+    print(img.pixels)
 
