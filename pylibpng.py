@@ -5,6 +5,7 @@ import struct
 import datetime
 import binascii
 import zlib
+import StringIO
 
 def unpack(s):
     """ Unpack bytes from string s """
@@ -13,6 +14,12 @@ def unpack(s):
     if len(s) == 4: return struct.unpack('!I', s)[0]
     if len(s) == 8: return struct.unpack('!Q', s)[0]
     else: return -1
+
+def array_to_2d(a, x):
+    n = []
+    for s in xrange(0, len(a), x):
+        n.append(a[s:s+x])
+    return n
 
 def is_png(f):
     """ Checks that the first 8 bytes of the opened file is a valid PNG signature """
@@ -117,25 +124,46 @@ class PNG:
 
         decomp_data = zlib.decompress(comp_data, -zlib.MAX_WBITS)
         decomp_bytes = struct.unpack('!' + 'B'*len(decomp_data), decomp_data)
+        self.pixels = self.defilter(decomp_bytes)
 
-        # This may probably be solved with a pretty sweet list comprehension but im hungover
-        self.pixels = []
-        i = 0
+    def defilter(self, data):
+        """
+        x   the byte being filtered;
+        a   the byte corresponding to x in the pixel immediately before the pixel containing x (or the byte
+            immediately before x, when the bit depth is less than 8);
+        b   the byte corresponding to x in the previous scanline;
+        c   the byte corresponding to b in the pixel immediately before the pixel containing b (or the byte
+            immediately before b, when the bit depth is less than 8).
+        """
+        # TODO: This is still not working
+        a = array_to_2d(list(data), self.width*3+1) # filter type + 3 bytes per pixel
+        for y in range(0, self.height):
+            filter_type = a[y][0]
+            a[y][0] = 0
+            # if filter_type == 0: Recon(x) = Filt(x)
+            if filter_type == 1:
+                for x in range(3, self.width*3+1):
+                    # Recon(x) = Filt(x) + Recon(a)
+                    a[y][x] = (a[y][x] + a[y][x-3]) % 256
+            elif filter_type == 2:
+                for x in range(1, self.width*3+1):
+                    # Recon(x) = Filt(x) + Recon(b)
+                    a[y][x] = (a[y][x] + a[y-1][x]) % 256
+            elif filter_type == 3:
+                pass
+            elif filter_type == 4:
+                pass
+
+        pixels = []
         for y in range(0, self.height):
             scanline = []
-            i = i + 1
-            for x in range(0, self.width):
-                scanline.append((decomp_bytes[i], decomp_bytes[i+1], decomp_bytes[i+2]))
-                i = i + 3
-            self.pixels.append(scanline)
+            for x in xrange(1, self.width*3+1, 3):
+                scanline.append((a[y][x], a[y][x+1], a[y][x+2]))
+            pixels.append(scanline)
 
-        #print("IDAT: decompressed bytes: " + str(decomp_bytes))
-
-    def defilter(self, scanline):
-        pass
+        return pixels
 
 if __name__ == '__main__':
     infile = sys.argv[1]
     img = PNG(infile)
-    print(img.pixels)
 
