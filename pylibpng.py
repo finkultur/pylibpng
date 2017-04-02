@@ -27,7 +27,7 @@ def is_png(f):
 
 class PNG:
     def __init__(self, filename):
-        self.IDATS = []
+        self.IDAT = ""
         with open(filename, 'rb') as f:
             if not is_png(f):
                 print("File is not a PNG")
@@ -53,6 +53,7 @@ class PNG:
             self.get_IDAT(chunk_data, next_chunk_id != 'IDAT')
             f.seek(f.tell()-8)
         elif chunk_id == "IEND":
+            self.process_IDAT()
             return
 
         # TODO: check for other type of chunks like PLTE, sRGB, gAMA, zTXT, tRNS
@@ -87,7 +88,6 @@ class PNG:
         """ tIME Chunk. Timestamp in UTC """
         year, month, day, hour, minute, second = struct.unpack('!hBBBBB', data)
         self.timestamp = datetime.datetime(year, month, day, hour, minute, second)
-        #print("Timestamp: " + str(self.timestamp))
 
     def get_iTXt(self, data):
         """ iTXt Chunk """
@@ -104,25 +104,23 @@ class PNG:
     def get_IDAT(self, data, last_IDAT):
         """ IDAT Chunk """
         # TODO: Check check_value
-        comp_method = unpack(data[0])
-        check_bits = unpack(data[1])
-        comp_data = data[2:-4]
-        check_value = unpack(data[-4:])
-        self.IDATS.append((comp_method, check_bits, comp_data, check_value))
-
+        # TODO: Check that data is at least "a few" bytes
+        start = 0
+        end = len(data)
+        if len(self.IDAT) == 0:
+            comp_method = unpack(data[0])
+            check_bits = unpack(data[1])
+            start = 2
         if last_IDAT:
-           self.process_IDATs()
-        #print("IDAT: comp_method: %i, check_bits: %i, check_value: %s" %
-        #      (comp_method, check_bits, hex(check_value)))
-        #print("IDAT: comp_data: " + str(comp_bytes))
+            check_value = unpack(data[-4:])
+            end = -4
+        self.IDAT += data[start:end]
 
-    def process_IDATs(self):
-        comp_data = ""
-        for idat in self.IDATS:
-            comp_data += idat[2]
-
-        decomp_data = zlib.decompress(comp_data, -zlib.MAX_WBITS)
-        decomp_bytes = struct.unpack('!' + 'B'*len(decomp_data), decomp_data)
+    def process_IDAT(self):
+        dc_obj = zlib.decompressobj(-zlib.MAX_WBITS)
+        data = dc_obj.decompress(self.IDAT)
+        data += dc_obj.flush()
+        decomp_bytes = struct.unpack('!' + 'B'*len(data), data)
         self.pixels = self.defilter(decomp_bytes)
 
     def defilter(self, data):
