@@ -16,6 +16,7 @@ def unpack(s):
     else: return -1
 
 def array_to_2d(a, x):
+    # Split 
     n = []
     for s in xrange(0, len(a), x):
         n.append(a[s:s+x])
@@ -27,6 +28,7 @@ def is_png(f):
 
 class PNG:
     def __init__(self, filename):
+        self.dc_obj = zlib.decompressobj(-zlib.MAX_WBITS)
         self.IDAT = ""
         with open(filename, 'rb') as f:
             if not is_png(f):
@@ -53,7 +55,6 @@ class PNG:
             self.get_IDAT(chunk_data, next_chunk_id != 'IDAT')
             f.seek(f.tell()-8)
         elif chunk_id == "IEND":
-            self.process_IDAT()
             return
 
         # TODO: check for other type of chunks like PLTE, sRGB, gAMA, zTXT, tRNS
@@ -91,6 +92,7 @@ class PNG:
 
     def get_iTXt(self, data):
         """ iTXt Chunk """
+        # TODO: Uncompress compressed data
         def get_until_null(s, start=0):
             end = s.find('\0')
             return end+1, s[start:end]
@@ -112,47 +114,37 @@ class PNG:
             check_bits = unpack(data[1])
             start = 2
         if last_IDAT:
-            check_value = unpack(data[-4:])
+            self.IDAT_check_value = unpack(data[-4:])
             end = -4
-        self.IDAT += data[start:end]
+        self.IDAT += self.dc_obj.decompress(data[start:end])
 
-    def process_IDAT(self):
-        dc_obj = zlib.decompressobj(-zlib.MAX_WBITS)
-        data = dc_obj.decompress(self.IDAT)
-        data += dc_obj.flush()
-        decomp_bytes = struct.unpack('!' + 'B'*len(data), data)
-        self.pixels = self.defilter(decomp_bytes)
+        if last_IDAT:
+            self.IDAT += self.dc_obj.flush()
+            decomp_bytes = struct.unpack('!' + 'B'*len(self.IDAT), self.IDAT)
+            self.pixels = self.defilter(decomp_bytes)
 
     def defilter(self, data):
-        """
-        x   the byte being filtered;
-        a   the byte corresponding to x in the pixel immediately before the pixel containing x (or the byte
-            immediately before x, when the bit depth is less than 8);
-        b   the byte corresponding to x in the previous scanline;
-        c   the byte corresponding to b in the pixel immediately before the pixel containing b (or the byte
-            immediately before b, when the bit depth is less than 8).
-        """
-        a = array_to_2d(list(data), self.width*3+1) # filter type + 3 bytes per pixel
+        """ Defilter image data """
+        if self.color_type == 2: pixel_size = 3
+        elif self.color_type == 6: pixel_size = 4
+        a = array_to_2d(list(data), self.width*pixel_size+1)
 
         for y in range(0, self.height):
             filter_type = a[y][0]
             a[y][0] = 0
-
-            # if filter_type == 0: Recon(x) = Filt(x)
-            if filter_type == 1:
-                for x in range(3, self.width*3+1):
-                    # Recon(x) = Filt(x) + Recon(a)
-                    a[y][x] = (a[y][x] + a[y][x-3]) % 256
-            elif filter_type == 2:
-                for x in range(1, self.width*3+1):
-                    # Recon(x) = Filt(x) + Recon(b)
+            # if filter_type == 0: # NONE
+            if filter_type == 1: # SUB
+                for x in range(pixel_size, self.width*pixel_size+1):
+                    a[y][x] = (a[y][x] + a[y][x-pixel_size]) % 256
+            elif filter_type == 2: # UP
+                for x in range(1, self.width*pixel_size+1):
                     a[y][x] = (a[y][x] + a[y-1][x]) % 256
-            elif filter_type == 3:
-                # TODO: Have not found a file that uses this filter type
-                for x in range(1, self.width*3+1):
-                    # Recon(x) = Filt(x) + floor((Recon(a) + Recon(b)) / 2)
-                    a[y][x] = (a[y][x] + math.floor((a[y][x-3] + a[y-1][x]) / 2)) % 256
-            elif filter_type == 4:
+            elif filter_type == 3: # AVERAGE
+                for x in range(1, self.width*pixel_size+1):
+                    recon_a = a[y][x-pixel_size]
+                    recon_b = a[y-1][x] if y > 1 else 0
+                    a[y][x] = (a[y][x] + math.floor((recon_a + recon_b) / 2)) % 256
+            elif filter_type == 4: # PAETH
                 def paeth_predictor(a, b, c):
                     p = a + b - c
                     pa = abs(p - a)
@@ -165,21 +157,24 @@ class PNG:
                     else:
                          pr = c
                     return pr
+                for x in range(1, self.width*pixel_size+1):
+                    recon_a = a[y][x-pixel_size] if x > pixel_size else 0
+                    recon_b = a[y-1][x] if y > 1 else 0
+                    recon_c = a[y-1][x-pixel_size] if x > pixel_size else 0
+                    a[y][x] = (a[y][x] + paeth_predictor(recon_a, recon_b, recon_c)) % 256
 
-                for x in range(1, self.width*3+1):
-                    # Recon(x) = Filt(x) + PaethPredictor(Recon(a), Recon(b), Recon(c))
-                    if x > 3:
-                        a[y][x] = (a[y][x] + paeth_predictor(a[y][x-3], a[y-1][x], a[y-1][x-3])) % 256
-                    else:
-                        a[y][x] = (a[y][x] + paeth_predictor(0, a[y-1][x], 0)) % 256
+        return self.init_pixels(a, pixel_size)
 
+    def init_pixels(self, a, pixel_size):
         pixels = []
         for y in range(0, self.height):
             scanline = []
-            for x in xrange(1, self.width*3+1, 3):
-                scanline.append((a[y][x], a[y][x+1], a[y][x+2]))
+            for x in xrange(1, self.width*pixel_size+1, pixel_size):
+                if pixel_size == 3:
+                    scanline.append((a[y][x], a[y][x+1], a[y][x+2]))
+                elif pixel_size == 4:
+                    scanline.append((a[y][x], a[y][x+1], a[y][x+2], a[y][x+3]))
             pixels.append(scanline)
-
         return pixels
 
 if __name__ == '__main__':
