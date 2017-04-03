@@ -15,10 +15,17 @@ def unpack(s):
     if len(s) == 8: return struct.unpack('!Q', s)[0]
     else: return -1
 
-class PNG:
+class PNG(object):
     def __init__(self, filename):
         self.dc_obj = zlib.decompressobj(-zlib.MAX_WBITS)
-        self.IDAT = ""
+        self.width = 0
+        self.height = 0
+        self.pixels = []
+        self.idat = ""
+        self.chrm = None
+        self.color_type = -1
+        self.bit_depth = -1
+        self.timestamp = None
         self.bkgd = None
         with open(filename, 'rb') as f:
             if not PNG.is_png(f):
@@ -29,7 +36,7 @@ class PNG:
     @staticmethod
     def is_png(f):
         """ Checks that the first 8 bytes of the opened file is a valid PNG signature """
-        return "0x89504e470d0a1a0a" == hex(unpack(f.read(8)))[:-1] # Cut the trailing 'L'
+        return hex(unpack(f.read(8)))[:-1] == "0x89504e470d0a1a0a" # Cut the trailing 'L'
 
     @staticmethod
     def check_crc(chunk_id, chunk_data, crc):
@@ -43,27 +50,27 @@ class PNG:
         size = unpack(f.read(4))
         chunk_id = f.read(4)
         chunk_data = f.read(size)
+        print("Chunk ID: %s, size: %i" % (chunk_id, size))
         crc = unpack(f.read(4))
         PNG.check_crc(chunk_id, chunk_data, crc)
-        print("Chunk ID: %s, size: %i" % (chunk_id, size))
 
         # Process current chunk
-        if chunk_id == "IHDR": self.get_IHDR(chunk_data)
-        elif chunk_id == "tIME": self.get_tIME(chunk_data)
-        elif chunk_id == "iTXt": self.get_iTXt(chunk_data)
-        elif chunk_id == "zTXt": self.get_zTXt(chunk_data)
+        if chunk_id == "IHDR": self.get_ihdr(chunk_data)
+        elif chunk_id == "tIME": self.get_time(chunk_data)
+        elif chunk_id == "iTXt": self.get_itxt(chunk_data)
+        elif chunk_id == "zTXt": self.get_ztxt(chunk_data)
         elif chunk_id == "cHRM": pass
-        elif chunk_id == "gAMA": pass
+        elif chunk_id == "gAMA": self.get_gama(chunk_data)
         elif chunk_id == "sBIT": pass
         elif chunk_id == "PLTE": pass
-        elif chunk_id == "bKGD": self.get_bKGD(chunk_data)
+        elif chunk_id == "bKGD": self.get_bkgd(chunk_data)
         elif chunk_id == "hIST": pass
         elif chunk_id == "tRNS": pass
-        elif chunk_id == "pHYs": self.get_pHYs(chunk_data)
+        elif chunk_id == "pHYs": self.get_phys(chunk_data)
         elif chunk_id == "IDAT":
             f.seek(f.tell()+4) # Skip size of next chunk
             next_chunk_id = f.read(4)
-            self.get_IDAT(chunk_data, next_chunk_id != 'IDAT')
+            self.get_idat(chunk_data, next_chunk_id != 'IDAT')
             f.seek(f.tell()-8)
         elif chunk_id == "IEND":
             return
@@ -71,7 +78,7 @@ class PNG:
         # Process next chunk
         self.get_chunk(f)
 
-    def get_IHDR(self, data):
+    def get_ihdr(self, data):
         """ IHDR Chunk """
         self.width = unpack(data[0:4])
         self.height = unpack(data[4:8])
@@ -81,15 +88,16 @@ class PNG:
         self.filter_method = unpack(data[11])
         self.interlace_method = unpack(data[12])
         print("""width: %i, height: %i, bit_depth: %i, color_type: %i, comp_method: %i,
-                 filter_method: %i, interlace_method: %i""" % (self.width, self.height, self.bit_depth,
-               self.color_type, self.comp_method, self.filter_method, self.interlace_method))
+                 filter_method: %i, interlace_method: %i""" %
+              (self.width, self.height, self.bit_depth, self.color_type, self.comp_method,
+               self.filter_method, self.interlace_method))
 
-    def get_tIME(self, data):
+    def get_time(self, data):
         """ tIME Chunk. Timestamp in UTC """
         year, month, day, hour, minute, second = struct.unpack('!hBBBBB', data)
         self.timestamp = datetime.datetime(year, month, day, hour, minute, second)
 
-    def get_iTXt(self, data):
+    def get_itxt(self, data):
         """ iTXt Chunk """
         # TODO: Uncompress compressed data
         def get_until_null(s, start=0):
@@ -102,55 +110,62 @@ class PNG:
         pos, translated_kw = get_until_null(data, pos)
         self.text = data[pos:]
 
-    def get_zTXt(self, data):
+    def get_ztxt(self, data):
         pass
 
-    def get_cHRM(self, data):
+    def get_chrm(self, data):
+        if len(data) == 32:
+            self.chrm.white = (unpack(data[0:4]) / 100000, unpack(data[4:8]) / 100000)
+            self.chrm.red = (unpack(data[8:12]) / 100000, unpack(data[12:16]) / 100000)
+            self.chrm.green = (unpack(data[16:20]) / 100000, unpack(data[20:24]) / 100000)
+            self.chrm.blue = (unpack(data[24:28]) / 100000, unpack(data[28:32]) / 100000)
+
+    def get_gama(self, data):
+        if len(data) == 4:
+            self.gamma = unpack(data) / 100000
+
+    def get_sbit(self, data):
         pass
 
-    def get_gAMA(self, data):
+    def get_plte(self, data):
         pass
 
-    def get_sBIT(self, data):
-        pass
-
-    def get_PLTE(self, data):
-        pass
-
-    def get_bKGD(self, data):
+    def get_bkgd(self, data):
         if self.color_type == 0 or self.color_type == 4:
             self.bkgd = unpack(data[0:2])
         elif self.color_type == 2 or self.color_type == 6:
             self.bkgd = (unpack(data[0:2]), unpack(data[2:4]), unpack(data[4:6]))
 
-    def get_hIST(self, data):
+    def get_hist(self, data):
         pass
 
-    def get_tRNS(self, data):
+    def get_trns(self, data):
         pass
 
-    def get_pHYs(self, data):
+    def get_phys(self, data):
         """ pHYs Chunk """
         pass # Not that important
 
-    def get_IDAT(self, data, last_IDAT):
+    def get_idat(self, data, last):
         """ IDAT Chunk """
         # TODO: Check check_value
         # TODO: Check that data is at least "a few" bytes
         start = 0
         end = len(data)
-        if len(self.IDAT) == 0:
+        if len(self.idat) == 0:
             comp_method = unpack(data[0])
             check_bits = unpack(data[1])
             start = 2
-        if last_IDAT:
-            self.IDAT_check_value = unpack(data[-4:])
+        if last:
+            idat_adler = unpack(data[-4:])
             end = -4
-        self.IDAT += self.dc_obj.decompress(data[start:end])
+        self.idat += self.dc_obj.decompress(data[start:end])
 
-        if last_IDAT:
-            self.IDAT += self.dc_obj.flush()
-            decomp_bytes = list(struct.unpack('!' + 'B'*len(self.IDAT), self.IDAT))
+        if last:
+            self.idat += self.dc_obj.flush()
+            if (zlib.adler32(self.idat) & 0xffffffff) != idat_adler:
+                print("IDAT Adler calculation mismatch")
+            decomp_bytes = list(struct.unpack('!' + 'B'*len(self.idat), self.idat))
             self.pixels = self.defilter(decomp_bytes)
 
     def defilter(self, data):
