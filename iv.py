@@ -11,12 +11,14 @@ def show_png(surface, png, zoom=1):
 if __name__ == '__main__':
 
     pygame.init()
-    screen = pygame.display.set_mode((400,400))
+
+    pic = pylibpng.PNG(sys.argv[1])
+
+    screen = pygame.display.set_mode((pic.width,pic.height))
     clock = pygame.time.Clock()
     screen.fill(pygame.Color(255,255,255))
 
-    pic = pylibpng.PNG(sys.argv[1])
-    show_png(screen, pic, 4)
+    show_png(screen, pic, 1)
 
     while True:
         for event in pygame.event.get():
