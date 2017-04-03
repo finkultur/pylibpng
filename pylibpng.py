@@ -15,26 +15,35 @@ def unpack(s):
     if len(s) == 8: return struct.unpack('!Q', s)[0]
     else: return -1
 
-def is_png(f):
-    """ Checks that the first 8 bytes of the opened file is a valid PNG signature """
-    return "0x89504e470d0a1a0a" == hex(unpack(f.read(8)))[:-1] # Cut the trailing 'L'
-
 class PNG:
     def __init__(self, filename):
         self.dc_obj = zlib.decompressobj(-zlib.MAX_WBITS)
         self.IDAT = ""
         with open(filename, 'rb') as f:
-            if not is_png(f):
+            if not PNG.is_png(f):
                 print("File is not a PNG")
                 return
             self.get_chunk(f)
+
+    @staticmethod
+    def is_png(f):
+        """ Checks that the first 8 bytes of the opened file is a valid PNG signature """
+        return "0x89504e470d0a1a0a" == hex(unpack(f.read(8)))[:-1] # Cut the trailing 'L'
+
+    @staticmethod
+    def check_crc(chunk_id, chunk_data, crc):
+        """ Check that crc(chunk_id+chunk_data) == crc """
+        calc_crc = binascii.crc32(chunk_id + chunk_data) & 0xffffffff
+        if (crc != calc_crc):
+            print("CRC mismatch, file corrupted")
+            return
 
     def get_chunk(self, f):
         size = unpack(f.read(4))
         chunk_id = f.read(4)
         chunk_data = f.read(size)
         crc = unpack(f.read(4))
-        self.check_crc(chunk_id, chunk_data, crc)
+        PNG.check_crc(chunk_id, chunk_data, crc)
         print("Chunk ID: %s, size: %i" % (chunk_id, size))
 
         # Process current chunk
@@ -54,12 +63,6 @@ class PNG:
 
         # Process next chunk
         self.get_chunk(f)
-
-    def check_crc(self, chunk_id, chunk_data, crc):
-        calc_crc = binascii.crc32(chunk_id + chunk_data) & 0xffffffff
-        if (crc != calc_crc):
-            print("CRC mismatch, file corrupted")
-            return
 
     def get_IHDR(self, data):
         """ IHDR Chunk """
