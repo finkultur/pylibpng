@@ -13,10 +13,15 @@ if __name__ == '__main__':
     pygame.init()
 
     pic = pylibpng.PNG(sys.argv[1])
+    black = (255,255,255)
 
     screen = pygame.display.set_mode((pic.width,pic.height))
     clock = pygame.time.Clock()
-    screen.fill(pygame.Color(255,255,255))
+    
+    if pic.bkgd:
+        screen.fill(pic.bkgd)
+    else:
+        screen.fill(black)
 
     show_png(screen, pic, 1)
 

@@ -19,6 +19,7 @@ class PNG:
     def __init__(self, filename):
         self.dc_obj = zlib.decompressobj(-zlib.MAX_WBITS)
         self.IDAT = ""
+        self.bkgd = None
         with open(filename, 'rb') as f:
             if not PNG.is_png(f):
                 print("File is not a PNG")
@@ -55,7 +56,7 @@ class PNG:
         elif chunk_id == "gAMA": pass
         elif chunk_id == "sBIT": pass
         elif chunk_id == "PLTE": pass
-        elif chunk_id == "bKGD": pass
+        elif chunk_id == "bKGD": self.get_bKGD(chunk_data)
         elif chunk_id == "hIST": pass
         elif chunk_id == "tRNS": pass
         elif chunk_id == "pHYs": self.get_pHYs(chunk_data)
@@ -66,8 +67,6 @@ class PNG:
             f.seek(f.tell()-8)
         elif chunk_id == "IEND":
             return
-
-        # TODO: check for other type of chunks like PLTE, sRGB, gAMA, zTXT, tRNS
 
         # Process next chunk
         self.get_chunk(f)
@@ -119,7 +118,10 @@ class PNG:
         pass
 
     def get_bKGD(self, data):
-        pass
+        if self.color_type == 0 or self.color_type == 4:
+            self.bkgd = unpack(data[0:2])
+        elif self.color_type == 2 or self.color_type == 6:
+            self.bkgd = (unpack(data[0:2]), unpack(data[2:4]), unpack(data[4:6]))
 
     def get_hIST(self, data):
         pass
