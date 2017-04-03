@@ -48,9 +48,17 @@ class PNG:
 
         # Process current chunk
         if chunk_id == "IHDR": self.get_IHDR(chunk_data)
-        elif chunk_id == "pHYs": self.get_pHYs(chunk_data)
         elif chunk_id == "tIME": self.get_tIME(chunk_data)
         elif chunk_id == "iTXt": self.get_iTXt(chunk_data)
+        elif chunk_id == "zTXt": self.get_zTXt(chunk_data)
+        elif chunk_id == "cHRM": pass
+        elif chunk_id == "gAMA": pass
+        elif chunk_id == "sBIT": pass
+        elif chunk_id == "PLTE": pass
+        elif chunk_id == "bKGD": pass
+        elif chunk_id == "hIST": pass
+        elif chunk_id == "tRNS": pass
+        elif chunk_id == "pHYs": self.get_pHYs(chunk_data)
         elif chunk_id == "IDAT":
             f.seek(f.tell()+4) # Skip size of next chunk
             next_chunk_id = f.read(4)
@@ -77,10 +85,6 @@ class PNG:
                  filter_method: %i, interlace_method: %i""" % (self.width, self.height, self.bit_depth,
                self.color_type, self.comp_method, self.filter_method, self.interlace_method))
 
-    def get_pHYs(self, data):
-        """ pHYs Chunk """
-        pass # Not that important
-
     def get_tIME(self, data):
         """ tIME Chunk. Timestamp in UTC """
         year, month, day, hour, minute, second = struct.unpack('!hBBBBB', data)
@@ -98,6 +102,34 @@ class PNG:
         pos, lang_tag = get_until_null(data, pos)
         pos, translated_kw = get_until_null(data, pos)
         self.text = data[pos:]
+
+    def get_zTXt(self, data):
+        pass
+
+    def get_cHRM(self, data):
+        pass
+
+    def get_gAMA(self, data):
+        pass
+
+    def get_sBIT(self, data):
+        pass
+
+    def get_PLTE(self, data):
+        pass
+
+    def get_bKGD(self, data):
+        pass
+
+    def get_hIST(self, data):
+        pass
+
+    def get_tRNS(self, data):
+        pass
+
+    def get_pHYs(self, data):
+        """ pHYs Chunk """
+        pass # Not that important
 
     def get_IDAT(self, data, last_IDAT):
         """ IDAT Chunk """
