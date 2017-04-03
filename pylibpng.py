@@ -15,13 +15,6 @@ def unpack(s):
     if len(s) == 8: return struct.unpack('!Q', s)[0]
     else: return -1
 
-def array_to_2d(a, x):
-    # Split 
-    n = []
-    for s in xrange(0, len(a), x):
-        n.append(a[s:s+x])
-    return n
-
 def is_png(f):
     """ Checks that the first 8 bytes of the opened file is a valid PNG signature """
     return "0x89504e470d0a1a0a" == hex(unpack(f.read(8)))[:-1] # Cut the trailing 'L'
@@ -120,27 +113,28 @@ class PNG:
 
         if last_IDAT:
             self.IDAT += self.dc_obj.flush()
-            decomp_bytes = struct.unpack('!' + 'B'*len(self.IDAT), self.IDAT)
+            decomp_bytes = list(struct.unpack('!' + 'B'*len(self.IDAT), self.IDAT))
             self.pixels = self.defilter(decomp_bytes)
 
     def defilter(self, data):
         """ Defilter image data """
         if self.color_type == 2: pixel_size = 3
         elif self.color_type == 6: pixel_size = 4
-        a = array_to_2d(list(data), self.width*pixel_size+1)
+        row_size = self.width * pixel_size + 1
+        a = [data[i:i+row_size] for i in range(0, len(data), row_size)]
 
         for y in range(0, self.height):
             filter_type = a[y][0]
             a[y][0] = 0
             # if filter_type == 0: # NONE
             if filter_type == 1: # SUB
-                for x in range(pixel_size, self.width*pixel_size+1):
+                for x in range(pixel_size, row_size):
                     a[y][x] = (a[y][x] + a[y][x-pixel_size]) % 256
             elif filter_type == 2: # UP
-                for x in range(1, self.width*pixel_size+1):
+                for x in range(1, row_size):
                     a[y][x] = (a[y][x] + a[y-1][x]) % 256
             elif filter_type == 3: # AVERAGE
-                for x in range(1, self.width*pixel_size+1):
+                for x in range(1, row_size):
                     recon_a = a[y][x-pixel_size]
                     recon_b = a[y-1][x] if y > 1 else 0
                     a[y][x] = (a[y][x] + math.floor((recon_a + recon_b) / 2)) % 256
@@ -157,7 +151,7 @@ class PNG:
                     else:
                          pr = c
                     return pr
-                for x in range(1, self.width*pixel_size+1):
+                for x in range(1, row_size):
                     recon_a = a[y][x-pixel_size] if x > pixel_size else 0
                     recon_b = a[y-1][x] if y > 1 else 0
                     recon_c = a[y-1][x-pixel_size] if x > pixel_size else 0
@@ -167,9 +161,10 @@ class PNG:
 
     def init_pixels(self, a, pixel_size):
         pixels = []
+        row_size = self.width * pixel_size + 1
         for y in range(0, self.height):
             scanline = []
-            for x in xrange(1, self.width*pixel_size+1, pixel_size):
+            for x in xrange(1, row_size, pixel_size):
                 if pixel_size == 3:
                     scanline.append((a[y][x], a[y][x+1], a[y][x+2]))
                 elif pixel_size == 4:
