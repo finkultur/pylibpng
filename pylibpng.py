@@ -1,20 +1,17 @@
 #!/usr/bin/python
 
-import sys
 import struct
 import datetime
 import zlib
 import math
-from itertools import chain
 
-adam7 = ((0,8,0,8),
-         (4,8,0,8),
-         (0,4,4,8),
-         (2,4,0,4),
-         (0,2,2,4),
-         (1,2,0,2),
-         (0,1,1,2))
-
+ADAM7 = ((0, 8, 0, 8),
+         (4, 8, 0, 8),
+         (0, 4, 4, 8),
+         (2, 4, 0, 4),
+         (0, 2, 2, 4),
+         (1, 2, 0, 2),
+         (0, 1, 1, 2))
 
 def unpack(s):
     """ Unpack bytes from string s """
@@ -24,9 +21,9 @@ def unpack(s):
     if len(s) == 8: return struct.unpack('!Q', s)[0]
     else: return -1
 
-def get_until_null(s, start=0):
-    end = s.find('\0')
-    return end+1, s[start:end]
+def get_until_null(string, start=0):
+    end = string.find('\0')
+    return end+1, string[start:end]
 
 class PNG(object):
     def __init__(self, filename):
@@ -38,6 +35,7 @@ class PNG(object):
         self.chrm = None
         self.color_type = -1
         self.bit_depth = -1
+        self.pixel_size = 3
         self.timestamp = None
         self.bkgd = None
         with open(filename, 'rb') as f:
@@ -55,7 +53,7 @@ class PNG(object):
     def check_crc(chunk_id, chunk_data, crc):
         """ Check that crc(chunk_id+chunk_data) == crc """
         calc_crc = zlib.crc32(chunk_id + chunk_data) & 0xffffffff
-        if (crc != calc_crc):
+        if crc != calc_crc:
             print("CRC mismatch, file corrupted")
             return
 
@@ -192,13 +190,16 @@ class PNG(object):
     def defilter(data, width, height, pixel_size):
         """ Defilter image data """
         row_size = width * pixel_size + 1
+        # Break up data by scanline
         a = [data[i:i+row_size] for i in range(0, len(data), row_size)]
+
+        # If the first scanline uses a filter that depends on the previous scanline (not likely)
         a[0] = PNG.defilter_scanline(a[0], [0]*row_size, pixel_size)
         for y in range(1, height):
             a[y] = PNG.defilter_scanline(a[y], a[y-1], pixel_size)
 
         # Return a flat list with pixel-tuples (w/o filter bytes)
-        return zip(*[iter( sum([d[1:] for d in a ],[]) )] * pixel_size)
+        return zip(*[iter(sum([d[1:] for d in a], []))] * pixel_size)
 
     @staticmethod
     def defilter_scanline(scanline, prev, pixel_size):
@@ -253,8 +254,8 @@ class PNG(object):
                     i += 1
         elif interlace_method == 1:
             # Combine all 7 passes to single image
-            for p, (x0, xstep, y0, ystep) in enumerate(adam7):
-                indices = [(x, y) for y in xrange(y0, height, ystep) for x in xrange(x0, width, xstep)]
+            for p, (x0, xs, y0, ys) in enumerate(ADAM7):
+                indices = [(x, y) for y in xrange(y0, height, ys) for x in xrange(x0, width, xs)]
                 for i in range(0, len(indices)):
                     x, y = indices[i]
                     pixels[y][x] = data[p][i]
@@ -267,20 +268,13 @@ class PNG(object):
          """
         passes = []
         ptr = 0
-        for x0, xstep, y0, ystep in adam7:
-            x_size = int(math.ceil(float(width-x0)/xstep))
-            y_size = int(math.ceil(float(height-y0)/ystep))
-            row_size = x_size * pixel_size + 1
-            uf_d = data[ptr:ptr + row_size * y_size]
-            ptr += row_size * y_size
-            f_d = PNG.defilter(uf_d, x_size, y_size, pixel_size)
-            # Creates a list of pixel-tuples (w/o filter bytes) from a list of scanlines (w/ f-bytes)
-            #f_d_wo_fb = zip(*[iter( sum([d[1:] for d in f_d ],[]) )] * pixel_size)
+        for x0, xs, y0, ys in ADAM7:
+            pass_x = int(math.ceil(float(width-x0)/xs))
+            pass_y = int(math.ceil(float(height-y0)/ys))
+            row_size = pass_x * pixel_size + 1
+            uf_d = data[ptr:ptr + row_size * pass_y]
+            ptr += row_size * pass_y
+            f_d = PNG.defilter(uf_d, pass_x, pass_y, pixel_size)
             passes.append(f_d)
         return passes
-
-
-if __name__ == '__main__':
-    infile = sys.argv[1]
-    img = PNG(infile)
 
