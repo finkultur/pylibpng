@@ -252,14 +252,6 @@ class PNG(object):
         return pixels
 
     @staticmethod
-    def unpack_pixels(data, pixel_size):
-        """ Creates a list of pixel-tuples (w/o filter bytes) from a list of scanlines (w/
-            filter bytes)
-        """
-        it = [iter( [val for sublist in [ d[1:] for d in data ] for val in sublist]  )] * pixel_size
-        return zip(*it)
-
-    @staticmethod
     def deinterlace(data, width, height, pixel_size):
         """ Deinterlace image data.
             Returns a list of list of pixel-tuples, one for each of the 7 passes.
@@ -273,7 +265,8 @@ class PNG(object):
             uf_d = data[ptr:ptr + row_size * y_size]
             ptr += row_size * y_size
             f_d = PNG.defilter(uf_d, x_size, y_size, pixel_size)
-            f_d_wo_fb = PNG.unpack_pixels(f_d, pixel_size)
+            # Creates a list of pixel-tuples (w/o filter bytes) from a list of scanlines (w/ f-bytes)
+            f_d_wo_fb = zip(*[iter( sum([d[1:] for d in f_d ],[]) )] * pixel_size)
             passes.append(f_d_wo_fb)
         return passes
 
