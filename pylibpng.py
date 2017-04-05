@@ -5,6 +5,16 @@ import struct
 import datetime
 import zlib
 import math
+from itertools import chain
+
+adam7 = ((0,8,0,8),
+         (4,8,0,8),
+         (0,4,4,8),
+         (2,4,0,4),
+         (0,2,2,4),
+         (1,2,0,2),
+         (0,1,1,2))
+
 
 def unpack(s):
     """ Unpack bytes from string s """
@@ -76,8 +86,13 @@ class PNG(object):
             self.get_idat(chunk_data, next_chunk_id != 'IDAT')
             f.seek(f.tell()-8)
         elif chunk_id == "IEND":
-            defiltered_data = self.defilter(self.idat, self.width, self.height, self.pixel_size)
-            self.pixels = PNG.init_pixels(defiltered_data, self.width, self.height, self.pixel_size)
+            if self.interlace_method == 0:
+                defiltered_data = self.defilter(self.idat, self.width, self.height, self.pixel_size)
+                self.pixels = PNG.init_pixels(defiltered_data, self.width, self.height, self.pixel_size)
+            elif self.interlace_method == 1:
+                print("Interlaced image!")
+                passes = PNG.deinterlace(self.idat, self.width, self.height, self.pixel_size)
+                self.pixels = PNG.init_interlaced_pixels(passes, self.width, self.height)
             return
 
         # Process next chunk
@@ -234,6 +249,43 @@ class PNG(object):
                 elif pixel_size == 4:
                     scanline.append((a[y][x], a[y][x+1], a[y][x+2], a[y][x+3]))
             pixels.append(scanline)
+        return pixels
+
+    @staticmethod
+    def unpack_pixels(data, pixel_size):
+        """ Creates a list of pixel-tuples (w/o filter bytes) from a list of scanlines (w/
+            filter bytes)
+        """
+        it = [iter( [val for sublist in [ d[1:] for d in data ] for val in sublist]  )] * pixel_size
+        return zip(*it)
+
+    @staticmethod
+    def deinterlace(data, width, height, pixel_size):
+        """ Deinterlace image data.
+            Returns a list of list of pixel-tuples, one for each of the 7 passes.
+         """
+        passes = []
+        ptr = 0
+        for x0, xstep, y0, ystep in adam7:
+            x_size = int(math.ceil(float(width-x0)/xstep))
+            y_size = int(math.ceil(float(height-y0)/ystep))
+            row_size = x_size * pixel_size + 1
+            uf_d = data[ptr:ptr + row_size * y_size]
+            ptr += row_size * y_size
+            f_d = PNG.defilter(uf_d, x_size, y_size, pixel_size)
+            f_d_wo_fb = PNG.unpack_pixels(f_d, pixel_size)
+            passes.append(f_d_wo_fb)
+        return passes
+
+    @staticmethod
+    def init_interlaced_pixels(passes, width, height):
+        """ Combine all 7 passes to single image """
+        pixels = [[None for i in range(width)] for j in range(height)]
+        for p, (x0, xstep, y0, ystep) in enumerate(adam7):
+            indices = [(x, y) for y in xrange(y0, height, ystep) for x in xrange(x0, width, xstep)]
+            for i in range(0, len(indices)):
+                x, y = indices[i]
+                pixels[y][x] = passes[p][i]
         return pixels
 
 if __name__ == '__main__':
