@@ -84,15 +84,14 @@ class PNG(object):
             f.seek(f.tell()+4) # Skip size of next chunk
             next_chunk_id = f.read(4)
             self.get_idat(chunk_data, next_chunk_id != 'IDAT')
-            f.seek(f.tell()-8)
+            f.seek(f.tell()-8) # Return file ptr
         elif chunk_id == "IEND":
             if self.interlace_method == 0:
-                defiltered_data = self.defilter(self.idat, self.width, self.height, self.pixel_size)
-                self.pixels = PNG.init_pixels(defiltered_data, self.width, self.height, self.pixel_size)
+                df_data = self.defilter(self.idat, self.width, self.height, self.pixel_size)
+                self.pixels = PNG.init_pixels(df_data, self.width, self.height, 0)
             elif self.interlace_method == 1:
-                print("Interlaced image!")
                 passes = PNG.deinterlace(self.idat, self.width, self.height, self.pixel_size)
-                self.pixels = PNG.init_interlaced_pixels(passes, self.width, self.height)
+                self.pixels = PNG.init_pixels(passes, self.width, self.height, 1)
             return
 
         # Process next chunk
@@ -197,7 +196,9 @@ class PNG(object):
         a[0] = PNG.defilter_scanline(a[0], [0]*row_size, pixel_size)
         for y in range(1, height):
             a[y] = PNG.defilter_scanline(a[y], a[y-1], pixel_size)
-        return a
+
+        # Return a flat list with pixel-tuples (w/o filter bytes)
+        return zip(*[iter( sum([d[1:] for d in a ],[]) )] * pixel_size)
 
     @staticmethod
     def defilter_scanline(scanline, prev, pixel_size):
@@ -238,17 +239,25 @@ class PNG(object):
         return scanline
 
     @staticmethod
-    def init_pixels(a, width, height, pixel_size):
-        pixels = []
-        row_size = width * pixel_size + 1
-        for y in range(0, height):
-            scanline = []
-            for x in xrange(1, row_size, pixel_size):
-                if pixel_size == 3:
-                    scanline.append((a[y][x], a[y][x+1], a[y][x+2]))
-                elif pixel_size == 4:
-                    scanline.append((a[y][x], a[y][x+1], a[y][x+2], a[y][x+3]))
-            pixels.append(scanline)
+    def init_pixels(data, width, height, interlace_method):
+        """ Initialize pixels
+            For non-interlaced images, data is just a flat list of pixel-tuples.
+            For interlaced images, data is a list of list of pixel-tuples, one for each pass.
+        """
+        pixels = [[None for i in range(width)] for j in range(height)]
+        if interlace_method == 0:
+            i = 0
+            for y in range(0, height):
+                for x in range(0, width):
+                    pixels[y][x] = data[i]
+                    i += 1
+        elif interlace_method == 1:
+            # Combine all 7 passes to single image
+            for p, (x0, xstep, y0, ystep) in enumerate(adam7):
+                indices = [(x, y) for y in xrange(y0, height, ystep) for x in xrange(x0, width, xstep)]
+                for i in range(0, len(indices)):
+                    x, y = indices[i]
+                    pixels[y][x] = data[p][i]
         return pixels
 
     @staticmethod
@@ -266,20 +275,10 @@ class PNG(object):
             ptr += row_size * y_size
             f_d = PNG.defilter(uf_d, x_size, y_size, pixel_size)
             # Creates a list of pixel-tuples (w/o filter bytes) from a list of scanlines (w/ f-bytes)
-            f_d_wo_fb = zip(*[iter( sum([d[1:] for d in f_d ],[]) )] * pixel_size)
-            passes.append(f_d_wo_fb)
+            #f_d_wo_fb = zip(*[iter( sum([d[1:] for d in f_d ],[]) )] * pixel_size)
+            passes.append(f_d)
         return passes
 
-    @staticmethod
-    def init_interlaced_pixels(passes, width, height):
-        """ Combine all 7 passes to single image """
-        pixels = [[None for i in range(width)] for j in range(height)]
-        for p, (x0, xstep, y0, ystep) in enumerate(adam7):
-            indices = [(x, y) for y in xrange(y0, height, ystep) for x in xrange(x0, width, xstep)]
-            for i in range(0, len(indices)):
-                x, y = indices[i]
-                pixels[y][x] = passes[p][i]
-        return pixels
 
 if __name__ == '__main__':
     infile = sys.argv[1]
